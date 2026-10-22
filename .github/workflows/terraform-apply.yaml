@@ -1,0 +1,55 @@
+name: terraform-apply
+
+# main 브랜치 push(= PR 병합)에서 실제 배포. apply role(보안 서비스 권한)로 OIDC assume.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "terraform/**"
+      - ".github/workflows/terraform-apply.yaml"
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: security-tooling-apply
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ap-northeast-2
+  ROLE_ARN: arn:aws:iam::929523583415:role/gha-terraform-apply
+  TF_WORKING_DIR: terraform/security
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC → apply role)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: gha-security-tooling-apply
+
+      - name: Who am I
+        run: aws sts get-caller-identity
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.15.2
+          terraform_wrapper: false
+
+      - name: Terraform init
+        run: terraform -chdir=${{ env.TF_WORKING_DIR }} init -input=false
+
+      - name: Terraform validate
+        run: terraform -chdir=${{ env.TF_WORKING_DIR }} validate
+
+      - name: Terraform plan
+        run: terraform -chdir=${{ env.TF_WORKING_DIR }} plan -input=false -no-color -out=tfplan
+
+      - name: Terraform apply
+        run: terraform -chdir=${{ env.TF_WORKING_DIR }} apply -input=false -no-color -auto-approve tfplan

@@ -1,0 +1,46 @@
+name: terraform-plan
+
+# PR(→main)에서 미리보기. plan role(ReadOnly)로 OIDC assume.
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  id-token: write      # OIDC 토큰 발급에 필수
+  contents: read
+  pull-requests: write
+
+env:
+  AWS_REGION: ap-northeast-2
+  ROLE_ARN: arn:aws:iam::929523583415:role/gha-terraform-plan
+  TF_WORKING_DIR: terraform/security
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC → plan role)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: gha-security-tooling-plan
+
+      - name: Who am I
+        run: aws sts get-caller-identity
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.15.2
+          terraform_wrapper: false
+
+      - name: Terraform init
+        run: terraform -chdir=${{ env.TF_WORKING_DIR }} init -input=false
+
+      - name: Terraform validate
+        run: terraform -chdir=${{ env.TF_WORKING_DIR }} validate
+
+      - name: Terraform plan
+        run: terraform -chdir=${{ env.TF_WORKING_DIR }} plan -input=false -no-color
